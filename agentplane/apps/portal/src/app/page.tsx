@@ -1,11 +1,15 @@
 "use client";
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
-import { api, type Project } from "@/lib/api";
+import { api, type Project, type Demand } from "@/lib/api";
+
+const TODAY = new Date().toISOString().slice(0, 10);
 
 export default function HomePage() {
   const router = useRouter();
   const [projects, setProjects] = useState<Project[] | null>(null);
+  const [stack, setStack] = useState<(Demand & { stackOrder: number | null; labels: string[] })[]>([]);
+  const [planning, setPlanning] = useState(false);
   const [form, setForm] = useState({ slug: "", name: "", repo_url: "", default_branch: "main" });
   const [err, setErr] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
@@ -18,6 +22,17 @@ export default function HomePage() {
       return;
     }
     setProjects(await api.projects());
+    setStack(await api.stack(TODAY).catch(() => []));
+  }
+
+  async function planToday() {
+    setPlanning(true);
+    try {
+      await api.planStack(TODAY);
+      setStack(await api.stack(TODAY));
+    } finally {
+      setPlanning(false);
+    }
   }
   useEffect(() => {
     void load();
@@ -42,10 +57,30 @@ export default function HomePage() {
   return (
     <main className="wrap">
       <div className="row" style={{ justifyContent: "space-between" }}>
-        <h1>Projects</h1>
+        <h1>Home</h1>
         <button className="ghost" onClick={() => api.logout().then(() => router.push("/login"))}>Sign out</button>
       </div>
 
+      <div className="card">
+        <div className="row" style={{ justifyContent: "space-between" }}>
+          <h3>Today&apos;s stack <span className="muted">{TODAY}</span></h3>
+          <button disabled={planning} onClick={planToday}>{planning ? "Planning…" : "Plan today"}</button>
+        </div>
+        {stack.length === 0 && <p className="muted">Nothing planned. Hit “Plan today” to score &amp; order open demands.</p>}
+        <ul className="steps">
+          {stack.map((d) => (
+            <li key={d.id} style={{ justifyContent: "space-between" }}>
+              <span><b>{d.stackOrder}.</b> #{d.number} {d.title}</span>
+              <span>
+                {d.labels?.includes("needs-human") && <span className="badge b-fail">needs-human</span>}{" "}
+                <span className="badge b-idle">{d.status}</span>
+              </span>
+            </li>
+          ))}
+        </ul>
+      </div>
+
+      <h2 style={{ marginTop: 20 }}>Projects</h2>
       {projects === null && <p className="muted">Loading…</p>}
       {projects?.map((p) => (
         <a key={p.id} href={`/projects/${p.id}`} className="card" style={{ display: "block" }}>

@@ -34,6 +34,8 @@ export type AgentRunStatus =
 
 export type RunMode = "analysis" | "edit" | "test" | "build" | "deploy";
 
+export type RiskLevel = "low" | "medium" | "high" | "critical";
+
 const DEMAND_TRANSITIONS: Record<DemandStatus, readonly DemandStatus[]> = {
   inbox: ["clarified", "cancelled"],
   clarified: ["queued", "cancelled"],

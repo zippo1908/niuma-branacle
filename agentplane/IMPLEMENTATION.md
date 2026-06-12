@@ -1,6 +1,6 @@
 # Implementation status
 
-This monorepo implements **Phase 0–5** of [`docs/architecture/11-mvp-roadmap.md`](docs/architecture/11-mvp-roadmap.md): the loop **Demand → Run → live logs → diff → review → commit → push → PR → CI → deploy → rollback**, plus **concurrency safety + crash recovery** (multi-worker safe) and **multi-user RBAC + append-only audit**, verified end-to-end.
+This monorepo implements the **entire Phase 0–6 roadmap** of [`docs/architecture/11-mvp-roadmap.md`](docs/architecture/11-mvp-roadmap.md): the loop **Demand → Run → live logs → diff → review → commit → push → PR → CI → deploy → rollback**, plus **concurrency safety + crash recovery** (multi-worker safe), **multi-user RBAC + append-only audit**, and a **daily Demand Stack** with semi-automatic planning — all verified end-to-end.
 
 ## Done
 
@@ -28,8 +28,13 @@ This monorepo implements **Phase 0–5** of [`docs/architecture/11-mvp-roadmap.m
 
   Verified e2e: with seeded viewer/developer/reviewer/owner members — viewer-run **403**, developer-approve **403**, reviewer-production-deploy **403**, admin-production-deploy **200**; and the audit log reconstructs the full chain `deploy.production → run.approve → run.trigger` with actors.
 
+- **Phase 6 — daily Demand Stack.** Pure, tested **scoring** (`scoreDemand` = priority + age + risk + retry; `orderForStack`; `needsHuman` at 3 retries or critical risk). `POST /demands/stack/plan?date` scores the eligible `inbox`/`clarified`/`failed` demands, writes `scheduled_date` + `stack_order`, **re-boards failed demands** (increments `retry_count`) and **labels `needs-human`** at the threshold; `GET /demands/stack?date` returns the ordered stack. An opt-in `automation.auto_run_low_risk` system setting **auto-triggers low-risk demands** — and the **iron rule holds: automation's terminus is always `waiting_review`** (it never auto-approves, commits, or deploys). Portal home shows today's stack + a "Plan today" button. The 06:00 planning cron is a one-line crontab hitting the endpoint (see README).
+
+  Verified e2e: priority+age ordering; a failed demand at 3 retries flagged `needs-human`; with the toggle on, a low-risk demand auto-ran and **stopped at `waiting_review` with no commit**.
+
 ## Deliberately deferred (later phases)
 
+- **Phase 6 (remaining)** drag-to-reorder stack UI; clarify-assist analysis runs.
 - **Phase 5 (remaining)** open registration / email invites (have superadmin-create), rate limiting, double-approval for critical-risk production, notification centre (Web Push).
 - **Phase 3/4 (remaining)** `systemd-run` cgroup resource limits + Docker sandboxing of the agent; control-channel `input`; `docker compose` preview *orchestration* (port allocation/recycling) beyond the templated deploy command.
 - **Phase 4** CI/CD (GitHub Actions webhooks, compose previews, deployments/rollback) — tables for these are not yet migrated.

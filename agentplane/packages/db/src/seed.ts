@@ -88,6 +88,11 @@ async function main() {
       value: ["image/png", "image/jpeg", "image/webp", "image/gif", "text/plain", "application/pdf"],
       description: "accepted attachment MIME types",
     },
+    {
+      key: "automation.auto_run_low_risk",
+      value: false,
+      description: "Phase 6: when planning, auto-trigger low-risk demands (still stops at waiting_review)",
+    },
   ];
   for (const s of settings) {
     await db

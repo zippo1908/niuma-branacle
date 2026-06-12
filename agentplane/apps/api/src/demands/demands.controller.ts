@@ -14,7 +14,7 @@ import {
 } from "@nestjs/common";
 import { FilesInterceptor } from "@nestjs/platform-express";
 import type { Queue } from "bullmq";
-import { and, desc, eq, sql } from "drizzle-orm";
+import { and, asc, desc, eq, inArray, sql } from "drizzle-orm";
 import { createHash } from "node:crypto";
 import { mkdirSync, writeFileSync } from "node:fs";
 import { extname, join } from "node:path";
@@ -22,8 +22,12 @@ import { schema, type Database } from "@agentplane/db";
 import {
   assertDemandTransition,
   sanitizeFilename,
+  orderForStack,
+  needsHuman,
+  PLANNABLE_STATUSES,
   type DemandStatus,
   type RunMode,
+  type RiskLevel,
 } from "@agentplane/shared";
 import type { Request } from "express";
 import { Req } from "@nestjs/common";
@@ -95,6 +99,72 @@ export class DemandsController {
       })
       .returning();
     return demand;
+  }
+
+  // ── Daily Demand Stack (Phase 6) — declared before :id so "stack" isn't an id ──
+
+  @Get("stack")
+  async stack(@Query("date") date?: string) {
+    const day = date ?? new Date().toISOString().slice(0, 10);
+    return this.db
+      .select()
+      .from(schema.demands)
+      .where(eq(schema.demands.scheduledDate, day))
+      .orderBy(asc(schema.demands.stackOrder));
+  }
+
+  /**
+   * Plan a day's stack: score eligible demands, assign scheduled_date +
+   * stack_order, flag needs-human, and (if automation.auto_run_low_risk is on)
+   * auto-trigger low-risk demands — which still stop at waiting_review. The iron
+   * rule: automation never bypasses review (docs/architecture/06, 11 Phase 6).
+   */
+  @Post("stack/plan")
+  async plan(@CurrentUser() user: AuthedUser, @Query("date") date?: string, @Query("project_id") projectId?: string) {
+    const day = date ?? new Date().toISOString().slice(0, 10);
+    const conds = [inArray(schema.demands.status, [...PLANNABLE_STATUSES])];
+    if (projectId) conds.push(eq(schema.demands.projectId, projectId));
+    const candidates = await this.db.select().from(schema.demands).where(and(...conds));
+
+    const ordered = orderForStack(
+      candidates.map((d) => ({ id: d.id, priority: d.priority, riskLevel: d.riskLevel as RiskLevel, retryCount: d.retryCount, createdAt: d.createdAt, status: d.status })),
+    );
+
+    const autoRunSetting = (await this.db.select().from(schema.systemSettings).where(eq(schema.systemSettings.key, "automation.auto_run_low_risk")))[0];
+    const autoRun = autoRunSetting?.value === true;
+
+    const plan: { id: string; number: number; title: string; needs_human: boolean; auto_ran: boolean }[] = [];
+    let order = 0;
+    for (const o of ordered) {
+      const d = candidates.find((c) => c.id === o.id)!;
+      order += 1;
+      // a previously-failed demand re-boards the next day → counts as a retry
+      const retryCount = d.status === "failed" ? d.retryCount + 1 : d.retryCount;
+      const nh = needsHuman({ retryCount, riskLevel: d.riskLevel as RiskLevel });
+      const labels = nh && !d.labels.includes("needs-human") ? [...d.labels, "needs-human"] : d.labels;
+      await this.db.update(schema.demands).set({ scheduledDate: day, stackOrder: order, labels, retryCount, updatedAt: new Date() }).where(eq(schema.demands.id, d.id));
+
+      let autoRan = false;
+      if (autoRun && !nh && (d.riskLevel === "low") && (d.status === "inbox" || d.status === "clarified")) {
+        await this.autoEnqueueRun(d, user.id);
+        autoRan = true;
+      }
+      plan.push({ id: d.id, number: d.number, title: d.title, needs_human: nh, auto_ran: autoRan });
+    }
+    return { date: day, count: plan.length, auto_run_enabled: autoRun, stack: plan };
+  }
+
+  /** Create + enqueue a run for a planned demand (terminus is waiting_review). */
+  private async autoEnqueueRun(demand: typeof schema.demands.$inferSelect, userId: string) {
+    const shell = (await this.db.select().from(schema.agentProfiles).where(eq(schema.agentProfiles.slug, "shell")))[0];
+    const profileId = demand.targetAgentProfileId ?? shell?.id;
+    if (!profileId) return;
+    await this.moveDemandToQueued(demand.id, demand.status as DemandStatus);
+    const [run] = await this.db
+      .insert(schema.agentRuns)
+      .values({ demandId: demand.id, projectId: demand.projectId, agentProfileId: profileId, runMode: demand.runMode, status: "queued", triggeredBy: userId })
+      .returning();
+    await this.runQueue.add("run", { runId: run!.id }, { removeOnComplete: 100, attempts: 2 });
   }
 
   @Get(":id")

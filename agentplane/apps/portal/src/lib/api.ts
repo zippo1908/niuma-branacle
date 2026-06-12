@@ -74,6 +74,9 @@ export const api = {
     req<{ status: string }>(`/projects/${projectId}/locks/${lockId}/release`, { method: "POST", body: "{}" }),
 
   demands: (projectId: string) => req<Demand[]>(`/demands?project_id=${projectId}`),
+  stack: (date: string) => req<(Demand & { stackOrder: number | null; labels: string[] })[]>(`/demands/stack?date=${date}`),
+  planStack: (date: string, projectId?: string) =>
+    req<{ count: number; auto_run_enabled: boolean }>(`/demands/stack/plan?date=${date}${projectId ? `&project_id=${projectId}` : ""}`, { method: "POST", body: "{}" }),
   createDemand: (b: { project_id: string; title: string; acceptance_criteria?: string; run_mode?: string }) =>
     req<Demand>("/demands", { method: "POST", body: JSON.stringify(b) }),
   demand: (id: string) =>
