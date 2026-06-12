@@ -15,9 +15,13 @@ import type { Queue } from "bullmq";
 import { and, desc, eq } from "drizzle-orm";
 import { schema, type Database } from "@agentplane/db";
 import { mapGithubCiStatus, type DeployEnvironment } from "@agentplane/shared";
+import { Req } from "@nestjs/common";
+import type { Request } from "express";
 import { DB, DEPLOY_QUEUE } from "../infra/infra.module.js";
 import { AuthGuard, type AuthedUser } from "../auth/auth.guard.js";
 import { CurrentUser } from "../auth/current-user.decorator.js";
+import { assertProjectRole } from "../rbac.js";
+import { writeAudit, clientIp } from "../audit.js";
 import { parseGitHubRepo, latestWorkflowRunForBranch } from "../github.js";
 
 const ENVS: DeployEnvironment[] = ["preview", "staging", "production"];
@@ -36,14 +40,14 @@ export class CicdController {
     @CurrentUser() user: AuthedUser,
     @Param("id") demandId: string,
     @Body() body: { environment?: DeployEnvironment },
+    @Req() req: Request,
   ) {
     const env = body.environment;
     if (!env || !ENVS.includes(env)) throw new BadRequestException({ error: { code: "BAD_ENV", message: "environment must be preview|staging|production" } });
-    if (env === "production" && !user.isSuperadmin) {
-      throw new ForbiddenException({ error: { code: "FORBIDDEN", message: "production deploy requires a superadmin (Phase 5 RBAC refines this)" } });
-    }
     const demand = (await this.db.select().from(schema.demands).where(eq(schema.demands.id, demandId)))[0];
     if (!demand) throw new NotFoundException({ error: { code: "NOT_FOUND", message: "demand not found" } });
+    // staging/preview need reviewer; production needs admin (07 §7)
+    await assertProjectRole(this.db, user, demand.projectId, env === "production" ? "admin" : "review");
 
     // the commit to deploy = the most recent run with a commit_sha
     const run = (
@@ -62,6 +66,7 @@ export class CicdController {
       .values({ demandId, projectId: demand.projectId, environment: env, commitSha: run.commitSha, approvalId: approval!.id, deployedBy: user.id, status: "pending" })
       .returning();
     await this.deployQueue.add("deploy", { deploymentId: dep!.id }, { attempts: 1 });
+    await writeAudit(this.db, { actorId: user.id, ip: clientIp(req), action: `deploy.${env}`, resourceType: "deployment", resourceId: dep!.id, payload: { demand_id: demandId, commit_sha: run.commitSha, approval_id: approval!.id } });
     return { deployment_id: dep!.id, environment: env, commit_sha: run.commitSha };
   }
 
@@ -80,12 +85,11 @@ export class CicdController {
 
   /** Roll back: re-deploy the previous succeeded commit for the same project+environment. */
   @Post("deployments/:id/rollback")
-  async rollback(@CurrentUser() user: AuthedUser, @Param("id") id: string) {
+  async rollback(@CurrentUser() user: AuthedUser, @Param("id") id: string, @Req() req: Request) {
     const dep = (await this.db.select().from(schema.deployments).where(eq(schema.deployments.id, id)))[0];
     if (!dep) throw new NotFoundException({ error: { code: "NOT_FOUND", message: "deployment not found" } });
-    if (dep.environment === "production" && !user.isSuperadmin) {
-      throw new ForbiddenException({ error: { code: "FORBIDDEN", message: "production rollback requires a superadmin" } });
-    }
+    await assertProjectRole(this.db, user, dep.projectId, dep.environment === "production" ? "admin" : "review");
+    void writeAudit(this.db, { actorId: user.id, ip: clientIp(req), action: `deploy.rollback.${dep.environment}`, resourceType: "deployment", resourceId: id });
     const prev = (
       await this.db
         .select()

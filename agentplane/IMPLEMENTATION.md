@@ -1,6 +1,6 @@
 # Implementation status
 
-This monorepo implements **Phase 0 + 1 + 2 + 3 + 4** of [`docs/architecture/11-mvp-roadmap.md`](docs/architecture/11-mvp-roadmap.md): the single-user loop **Demand → Run → live logs → diff → review → commit → push → PR → CI → deploy → rollback**, plus **concurrency safety + crash recovery** ("safe to run multiple workers"), verified end-to-end.
+This monorepo implements **Phase 0–5** of [`docs/architecture/11-mvp-roadmap.md`](docs/architecture/11-mvp-roadmap.md): the loop **Demand → Run → live logs → diff → review → commit → push → PR → CI → deploy → rollback**, plus **concurrency safety + crash recovery** (multi-worker safe) and **multi-user RBAC + append-only audit**, verified end-to-end.
 
 ## Done
 
@@ -24,8 +24,13 @@ This monorepo implements **Phase 0 + 1 + 2 + 3 + 4** of [`docs/architecture/11-m
 
   Verified on live infra: two demands shipped + **deployed to staging** (URL captured); **rollback** re-deployed the prior commit and flipped the previous deployment to `rolled_back`; webhook **rejected a bad signature (401)** and **accepted a valid one (200)**, upserting a linked `ci_jobs` row. PR creation + GitHub Actions polling need a real GitHub remote + `GITHUB_TOKEN` (implemented; not exercised offline).
 
+- **Phase 5 — multi-user RBAC + audit.** `audit_logs` table (migration `0003`, append-only). Ordered project roles (`viewer < developer < reviewer < admin < owner`, shared `roleAtLeast` + `REQUIRED_ROLE` matrix); `assertProjectRole` gates the write paths per the 07 §7 matrix (run = developer, approve/reject = reviewer, staging deploy = reviewer, production deploy / force-release lock / manage members = admin); **superadmin bypasses**. **reviewer ≠ owner** is enforced for high/critical-risk demands. Write paths emit audit rows (`run.trigger`, `run.approve`, `deploy.<env>`, `lock.force_release`, `member.grant`, …). New endpoints: `GET/POST /users` (superadmin), `GET/POST /projects/:id/members` (admin), `GET /audit-logs` (superadmin).
+
+  Verified e2e: with seeded viewer/developer/reviewer/owner members — viewer-run **403**, developer-approve **403**, reviewer-production-deploy **403**, admin-production-deploy **200**; and the audit log reconstructs the full chain `deploy.production → run.approve → run.trigger` with actors.
+
 ## Deliberately deferred (later phases)
 
+- **Phase 5 (remaining)** open registration / email invites (have superadmin-create), rate limiting, double-approval for critical-risk production, notification centre (Web Push).
 - **Phase 3/4 (remaining)** `systemd-run` cgroup resource limits + Docker sandboxing of the agent; control-channel `input`; `docker compose` preview *orchestration* (port allocation/recycling) beyond the templated deploy command.
 - **Phase 4** CI/CD (GitHub Actions webhooks, compose previews, deployments/rollback) — tables for these are not yet migrated.
 - **Phase 5** multi-user RBAC guards + `audit_logs` write-path + Audit UI.

@@ -9,6 +9,8 @@ import { sql } from "drizzle-orm";
 import { DB, PUBLISHER, GIT_OPS_QUEUE, RUN_QUEUE } from "../infra/infra.module.js";
 import { AuthGuard, type AuthedUser } from "../auth/auth.guard.js";
 import { CurrentUser } from "../auth/current-user.decorator.js";
+import { assertProjectRole } from "../rbac.js";
+import { writeAudit, clientIp } from "../audit.js";
 import { config } from "../config.js";
 
 function logRowToEvent(row: { seq: number; stream: string; content: string }) {
@@ -129,10 +131,13 @@ export class RunsController {
     @CurrentUser() user: AuthedUser,
     @Param("id") id: string,
     @Body() body: { comment?: string },
+    @Req() req: Request,
     @Query("auto") auto?: string,
   ) {
     const run = (await this.db.select().from(schema.agentRuns).where(eq(schema.agentRuns.id, id)))[0];
     if (!run) throw new NotFoundException({ error: { code: "NOT_FOUND", message: "run not found" } });
+    await assertProjectRole(this.db, user, run.projectId, "review");
+    await this.assertReviewerNotOwner(user, run.demandId);
     const diff = (await this.db.select().from(schema.diffs).where(eq(schema.diffs.runId, id)).orderBy(desc(schema.diffs.createdAt)).limit(1))[0];
     await this.db.insert(schema.approvals).values({
       runId: id,
@@ -149,7 +154,17 @@ export class RunsController {
     if (auto === "ship") {
       await this.gitOps.add("ship", { runId: id, action: "ship" satisfies GitOpAction }, { removeOnComplete: 100, attempts: 1 });
     }
+    await writeAudit(this.db, { actorId: user.id, ip: clientIp(req), action: "run.approve", resourceType: "run", resourceId: id, payload: { demand_id: run.demandId, ship: auto === "ship" } });
     return { run_id: id, decision: "accepted", shipping: auto === "ship" };
+  }
+
+  /** reviewer ≠ owner for high/critical-risk demands (docs/architecture/03 §2.5). */
+  private async assertReviewerNotOwner(user: AuthedUser, demandId: string) {
+    if (user.isSuperadmin) return;
+    const d = (await this.db.select({ owner: schema.demands.ownerId, risk: schema.demands.riskLevel }).from(schema.demands).where(eq(schema.demands.id, demandId)))[0];
+    if (d && (d.risk === "high" || d.risk === "critical") && d.owner === user.id) {
+      throw new ForbiddenException({ error: { code: "REVIEWER_IS_OWNER", message: "high/critical demands must be reviewed by someone other than the owner" } });
+    }
   }
 
   @Post(":id/reject")
@@ -157,6 +172,7 @@ export class RunsController {
   async reject(@CurrentUser() user: AuthedUser, @Param("id") id: string, @Body() body: { comment?: string }) {
     const run = (await this.db.select().from(schema.agentRuns).where(eq(schema.agentRuns.id, id)))[0];
     if (!run) throw new NotFoundException({ error: { code: "NOT_FOUND", message: "run not found" } });
+    await assertProjectRole(this.db, user, run.projectId, "review");
     await this.db.insert(schema.approvals).values({
       runId: id,
       demandId: run.demandId,

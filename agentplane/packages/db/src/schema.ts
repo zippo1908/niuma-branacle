@@ -373,6 +373,25 @@ export const deployments = pgTable(
   (t) => ({ idx: index("deployments_proj_env_idx").on(t.projectId, t.environment, t.createdAt) }),
 );
 
+export const auditLogs = pgTable(
+  "audit_logs",
+  {
+    id: bigserial("id", { mode: "number" }).primaryKey(),
+    actorId: uuid("actor_id").references(() => users.id),
+    actorIp: text("actor_ip"),
+    action: text("action").notNull(),
+    resourceType: text("resource_type"),
+    resourceId: text("resource_id"),
+    payload: jsonb("payload").notNull().default({}),
+    ts: timestamp("ts", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => ({
+    resIdx: index("audit_resource_idx").on(t.resourceType, t.resourceId),
+    actorIdx: index("audit_actor_idx").on(t.actorId, t.ts),
+    actionIdx: index("audit_action_idx").on(t.action),
+  }),
+);
+
 export const systemSettings = pgTable("system_settings", {
   key: text("key").primaryKey(),
   value: jsonb("value").notNull(),

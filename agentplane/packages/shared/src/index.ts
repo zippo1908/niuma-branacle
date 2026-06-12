@@ -5,3 +5,4 @@ export * from "./events.js";
 export * from "./prompt.js";
 export * from "./password.js";
 export * from "./webhook.js";
+export * from "./roles.js";

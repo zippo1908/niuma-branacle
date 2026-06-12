@@ -25,9 +25,13 @@ import {
   type DemandStatus,
   type RunMode,
 } from "@agentplane/shared";
+import type { Request } from "express";
+import { Req } from "@nestjs/common";
 import { DB, RUN_QUEUE } from "../infra/infra.module.js";
 import { AuthGuard, type AuthedUser } from "../auth/auth.guard.js";
 import { CurrentUser } from "../auth/current-user.decorator.js";
+import { assertProjectRole } from "../rbac.js";
+import { writeAudit, clientIp } from "../audit.js";
 import { config } from "../config.js";
 
 const MIME_ALLOWLIST = new Set(["image/png", "image/jpeg", "image/webp", "image/gif", "text/plain", "application/pdf"]);
@@ -68,6 +72,7 @@ export class DemandsController {
     }
     const project = (await this.db.select().from(schema.projects).where(eq(schema.projects.id, body.project_id)))[0];
     if (!project) throw new NotFoundException({ error: { code: "NOT_FOUND", message: "project not found" } });
+    await assertProjectRole(this.db, user, project.id, "demandWrite");
 
     const [{ max }] = await this.db
       .select({ max: sql<number>`coalesce(max(${schema.demands.number}), 0)` })
@@ -109,9 +114,11 @@ export class DemandsController {
     @CurrentUser() user: AuthedUser,
     @Param("id") id: string,
     @Body() body: { agent_profile_id?: string; run_mode?: RunMode; dangerous_mode?: boolean },
+    @Req() req: Request,
   ) {
     const demand = (await this.db.select().from(schema.demands).where(eq(schema.demands.id, id)))[0];
     if (!demand) throw new NotFoundException({ error: { code: "NOT_FOUND", message: "demand not found" } });
+    await assertProjectRole(this.db, user, demand.projectId, "demandWrite");
 
     // resolve agent profile: explicit → demand default → 'shell' (loop runs without an external agent binary)
     let profileId = body.agent_profile_id ?? demand.targetAgentProfileId ?? null;
@@ -140,6 +147,7 @@ export class DemandsController {
       .returning();
 
     await this.runQueue.add("run", { runId: run!.id }, { removeOnComplete: 100, attempts: 2 });
+    await writeAudit(this.db, { actorId: user.id, ip: clientIp(req), action: "run.trigger", resourceType: "run", resourceId: run!.id, payload: { demand_id: demand.id, run_mode: runMode } });
     return { run_id: run!.id, status: "queued" };
   }
 

@@ -8,6 +8,7 @@ import { RunsController } from "./runs/runs.controller.js";
 import { ProfilesController } from "./profiles/profiles.controller.js";
 import { CicdController } from "./cicd/cicd.controller.js";
 import { WebhooksController } from "./cicd/webhooks.controller.js";
+import { AdminController } from "./admin/admin.controller.js";
 import { HealthController } from "./health.controller.js";
 
 @Module({
@@ -21,6 +22,7 @@ import { HealthController } from "./health.controller.js";
     ProfilesController,
     CicdController,
     WebhooksController,
+    AdminController,
   ],
   providers: [AuthGuard],
 })
