@@ -52,9 +52,11 @@ export const QUEUES = {
   agentRuns: "agent-runs",
   projectClone: "project-clone",
   gitOps: "git-ops",
+  deploy: "deploy",
 } as const;
 
 export type GitOpAction = "commit" | "push" | "create_pr" | "ship";
+export type DeployEnvironment = "preview" | "staging" | "production";
 
 export type ControlMessage =
   | { type: "stop"; reason?: string }

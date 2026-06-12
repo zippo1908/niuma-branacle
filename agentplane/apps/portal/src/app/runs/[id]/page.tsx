@@ -1,7 +1,7 @@
 "use client";
 import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
-import { api, type Run } from "@/lib/api";
+import { api, type Run, type Deployment } from "@/lib/api";
 
 const EVENT_TYPES = [
   "run.created", "run.queued", "workspace.created", "lock.acquired", "lock.released",
@@ -30,7 +30,12 @@ export default function RunPage({ params }: { params: { id: string } }) {
   const [logs, setLogs] = useState<LogEntry[]>([]);
   const [diff, setDiff] = useState<{ patch: string; files_changed: number; insertions: number; deletions: number } | null>(null);
   const [busy, setBusy] = useState(false);
+  const [deps, setDeps] = useState<Deployment[]>([]);
   const logRef = useRef<HTMLDivElement>(null);
+
+  const loadDeps = (projectId?: string) => {
+    if (projectId) api.deployments(projectId).then(setDeps).catch(() => {});
+  };
 
   const refreshRun = () => api.run(id).then(setRun).catch(() => {});
   const loadDiff = () => api.runDiff(id).then(setDiff).catch(() => setDiff(null));
@@ -63,8 +68,9 @@ export default function RunPage({ params }: { params: { id: string } }) {
 
   useEffect(() => {
     if (run?.status === "waiting_review" && !diff) void loadDiff();
+    if (run?.commitSha) loadDeps(run.projectId);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [run?.status]);
+  }, [run?.status, run?.commitSha]);
 
   async function decide(kind: "approve" | "ship" | "reject") {
     setBusy(true);
@@ -134,6 +140,34 @@ export default function RunPage({ params }: { params: { id: string } }) {
               <button disabled={busy} onClick={() => decide("approve")}>✓ Approve only</button>
               <button className="red" disabled={busy} onClick={() => decide("reject")}>✗ Request changes</button>
             </div>
+          )}
+        </div>
+      )}
+
+      {run?.commitSha && (
+        <div className="card">
+          <h3>Ship &amp; deploy <span className="muted">commit {run.commitSha.slice(0, 8)}</span></h3>
+          {run.demandId && (
+            <div className="row" style={{ marginTop: 8 }}>
+              <button disabled={busy} onClick={async () => { setBusy(true); try { await api.deploy(run.demandId!, "staging"); loadDeps(run.projectId); } finally { setBusy(false); } }}>Deploy → staging</button>
+              <button disabled={busy} onClick={async () => { setBusy(true); try { await api.deploy(run.demandId!, "production"); loadDeps(run.projectId); } finally { setBusy(false); } }}>Deploy → production</button>
+            </div>
+          )}
+          {deps.length > 0 && (
+            <ul className="steps" style={{ marginTop: 12 }}>
+              {deps.slice(0, 6).map((d) => (
+                <li key={d.id} style={{ justifyContent: "space-between" }}>
+                  <span>
+                    <span className={`badge ${d.status === "succeeded" ? "b-ok" : d.status === "failed" ? "b-fail" : d.status === "rolled_back" ? "b-idle" : "b-wait"}`}>{d.environment}</span>{" "}
+                    <span className="muted">{d.status} · {d.commitSha.slice(0, 8)}</span>{" "}
+                    {d.url && <a href={d.url} target="_blank" rel="noreferrer">{d.url}</a>}
+                  </span>
+                  {d.status === "succeeded" && !d.rollbackOf && (
+                    <button className="ghost" onClick={async () => { await api.rollback(d.id); loadDeps(run.projectId); }}>Rollback</button>
+                  )}
+                </li>
+              ))}
+            </ul>
           )}
         </div>
       )}

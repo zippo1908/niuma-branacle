@@ -39,6 +39,11 @@ export async function addWorktree(
   return resolveCommit(barePath, baseBranch);
 }
 
+/** Worktree checked out at a specific commit (detached) — used for deploys. */
+export async function addDetachedWorktree(barePath: string, wsPath: string, commitSha: string): Promise<void> {
+  await git(["--git-dir", barePath, "worktree", "add", "--detach", wsPath, commitSha]);
+}
+
 export async function removeWorktree(barePath: string, wsPath: string): Promise<void> {
   try {
     await git(["--git-dir", barePath, "worktree", "remove", "--force", wsPath]);

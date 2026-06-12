@@ -9,6 +9,7 @@ export const DB = Symbol("DB");
 export const RUN_QUEUE = Symbol("RUN_QUEUE");
 export const CLONE_QUEUE = Symbol("CLONE_QUEUE");
 export const GIT_OPS_QUEUE = Symbol("GIT_OPS_QUEUE");
+export const DEPLOY_QUEUE = Symbol("DEPLOY_QUEUE");
 export const PUBLISHER = Symbol("PUBLISHER");
 
 const connection = { host: hostFrom(config.redisUrl), port: portFrom(config.redisUrl), maxRetriesPerRequest: null };
@@ -27,8 +28,9 @@ function portFrom(url: string) {
     { provide: RUN_QUEUE, useFactory: () => new Queue(QUEUES.agentRuns, { connection }) },
     { provide: CLONE_QUEUE, useFactory: () => new Queue(QUEUES.projectClone, { connection }) },
     { provide: GIT_OPS_QUEUE, useFactory: () => new Queue(QUEUES.gitOps, { connection }) },
+    { provide: DEPLOY_QUEUE, useFactory: () => new Queue(QUEUES.deploy, { connection }) },
     { provide: PUBLISHER, useFactory: () => new IORedis(config.redisUrl) },
   ],
-  exports: [DB, RUN_QUEUE, CLONE_QUEUE, GIT_OPS_QUEUE, PUBLISHER],
+  exports: [DB, RUN_QUEUE, CLONE_QUEUE, GIT_OPS_QUEUE, DEPLOY_QUEUE, PUBLISHER],
 })
 export class InfraModule {}

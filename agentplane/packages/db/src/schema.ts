@@ -40,6 +40,8 @@ export const riskLevel = pgEnum("risk_level", ["low", "medium", "high", "critica
 export const lockStatus = pgEnum("lock_status", ["held", "released", "expired", "force_released"]);
 export const memberRole = pgEnum("member_role", ["viewer", "developer", "reviewer", "admin", "owner"]);
 export const approvalStatus = pgEnum("approval_status", ["pending", "accepted", "rejected", "changes_requested"]);
+export const ciStatus = pgEnum("ci_status", ["pending", "queued", "in_progress", "success", "failure", "cancelled"]);
+export const deploymentStatus = pgEnum("deployment_status", ["pending", "deploying", "succeeded", "failed", "rolled_back"]);
 
 // ── organizations / users / projects ───────────────────────────────────────────
 export const organizations = pgTable("organizations", {
@@ -327,6 +329,48 @@ export const approvals = pgTable(
     decidedAt: timestamp("decided_at", { withTimezone: true }),
   },
   (t) => ({ runIdx: index("approvals_run_idx").on(t.runId) }),
+);
+
+export const ciJobs = pgTable(
+  "ci_jobs",
+  {
+    id: id(),
+    demandId: uuid("demand_id").notNull().references(() => demands.id),
+    runId: uuid("run_id").references(() => agentRuns.id),
+    provider: text("provider").notNull().default("github_actions"),
+    externalId: text("external_id"),
+    externalUrl: text("external_url"),
+    ref: text("ref"),
+    status: ciStatus("status").notNull().default("pending"),
+    conclusionDetail: jsonb("conclusion_detail").notNull().default({}),
+    startedAt: timestamp("started_at", { withTimezone: true }),
+    finishedAt: timestamp("finished_at", { withTimezone: true }),
+    createdAt: createdAt(),
+  },
+  (t) => ({
+    demandIdx: index("ci_jobs_demand_idx").on(t.demandId),
+    extUq: uniqueIndex("ci_jobs_provider_ext_uq").on(t.provider, t.externalId),
+  }),
+);
+
+export const deployments = pgTable(
+  "deployments",
+  {
+    id: id(),
+    demandId: uuid("demand_id").references(() => demands.id),
+    projectId: uuid("project_id").notNull().references(() => projects.id),
+    environment: text("environment").notNull(), // preview | staging | production
+    status: deploymentStatus("status").notNull().default("pending"),
+    commitSha: text("commit_sha").notNull(),
+    approvalId: uuid("approval_id").references(() => approvals.id),
+    deployedBy: uuid("deployed_by").references(() => users.id),
+    url: text("url"),
+    rollbackOf: uuid("rollback_of"),
+    startedAt: timestamp("started_at", { withTimezone: true }),
+    finishedAt: timestamp("finished_at", { withTimezone: true }),
+    createdAt: createdAt(),
+  },
+  (t) => ({ idx: index("deployments_proj_env_idx").on(t.projectId, t.environment, t.createdAt) }),
 );
 
 export const systemSettings = pgTable("system_settings", {

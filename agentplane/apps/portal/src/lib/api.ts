@@ -37,8 +37,26 @@ export interface Run {
   status: string;
   runMode: string;
   exitCode: number | null;
+  demandId?: string;
+  projectId?: string;
+  commitSha?: string | null;
   steps?: { seq: number; name: string; status: string }[];
   diff?: { filesChanged: number; insertions: number; deletions: number; isEmpty: boolean } | null;
+}
+
+export interface Deployment {
+  id: string;
+  environment: string;
+  status: string;
+  commitSha: string;
+  url: string | null;
+  rollbackOf: string | null;
+}
+export interface CiJob {
+  id: string;
+  status: string;
+  externalUrl: string | null;
+  ref: string | null;
 }
 
 export const api = {
@@ -73,6 +91,14 @@ export const api = {
     req<{ decision: string }>(`/runs/${id}/reject`, { method: "POST", body: JSON.stringify({ comment }) }),
   stop: (id: string) => req<void>(`/runs/${id}/stop`, { method: "POST", body: "{}" }),
   retry: (id: string) => req<{ new_run_id: string }>(`/runs/${id}/retry`, { method: "POST", body: "{}" }),
+
+  deploy: (demandId: string, environment: string) =>
+    req<{ deployment_id: string }>(`/demands/${demandId}/deploy`, { method: "POST", body: JSON.stringify({ environment }) }),
+  deployments: (projectId: string) => req<Deployment[]>(`/deployments?project_id=${projectId}`),
+  rollback: (deploymentId: string) =>
+    req<{ deployment_id: string }>(`/deployments/${deploymentId}/rollback`, { method: "POST", body: "{}" }),
+  ciJobs: (demandId: string) => req<CiJob[]>(`/ci-jobs?demand_id=${demandId}`),
+  ciRefresh: (demandId: string) => req<{ ci: unknown }>(`/demands/${demandId}/ci/refresh`, { method: "POST", body: "{}" }),
 };
 
 export interface Lock {

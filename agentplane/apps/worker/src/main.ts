@@ -9,6 +9,7 @@ import { bullConnection, lockRedis } from "./redis.js";
 import { getDb } from "./db.js";
 import { processRun } from "./runner.js";
 import { processGitOp } from "./gitops.js";
+import { processDeploy } from "./deploy.js";
 import { ProjectLockManager } from "./lock.js";
 import { ensureBareRepo } from "./git.js";
 
@@ -98,6 +99,18 @@ gitOpsWorker.on("failed", (job, err) => {
   console.error(`[worker] git-op ${job?.data?.action} for run ${job?.data?.runId} failed:`, err.message);
 });
 
+// ── deploy consumer (preview / staging / production / rollback) ───────────────
+const deployWorker = new Worker(
+  QUEUES.deploy,
+  async (job) => {
+    await processDeploy(job.data.deploymentId as string);
+  },
+  { connection: bullConnection as unknown as ConnectionOptions, concurrency: 2 },
+);
+deployWorker.on("failed", (job, err) => {
+  console.error(`[worker] deploy ${job?.data?.deploymentId} failed:`, err.message);
+});
+
 // ── lock reconciliation: expire PG 'held' rows whose Redis key has vanished ────
 const lockMgr = new ProjectLockManager(lockRedis);
 const reconcileTimer = setInterval(() => {
@@ -110,7 +123,7 @@ const reconcileTimer = setInterval(() => {
 async function shutdown() {
   console.log("[worker] shutting down…");
   clearInterval(reconcileTimer);
-  await Promise.allSettled([runWorker.close(), cloneWorker.close(), gitOpsWorker.close()]);
+  await Promise.allSettled([runWorker.close(), cloneWorker.close(), gitOpsWorker.close(), deployWorker.close()]);
   process.exit(0);
 }
 process.on("SIGTERM", shutdown);

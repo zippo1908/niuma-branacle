@@ -21,6 +21,7 @@ export const config = {
   redisUrl: req("REDIS_URL"),
   sessionSecret: process.env.SESSION_SECRET ?? "dev-insecure-secret-change-me",
   cookieSecure: (process.env.COOKIE_SECURE ?? "false") === "true",
+  githubWebhookSecret: process.env.GITHUB_WEBHOOK_SECRET ?? "",
   dataDir,
   uploadsDir: join(dataDir, "uploads"),
   logsDir: join(dataDir, "logs"),

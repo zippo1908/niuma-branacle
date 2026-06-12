@@ -6,6 +6,8 @@ import { ProjectsController } from "./projects/projects.controller.js";
 import { DemandsController } from "./demands/demands.controller.js";
 import { RunsController } from "./runs/runs.controller.js";
 import { ProfilesController } from "./profiles/profiles.controller.js";
+import { CicdController } from "./cicd/cicd.controller.js";
+import { WebhooksController } from "./cicd/webhooks.controller.js";
 import { HealthController } from "./health.controller.js";
 
 @Module({
@@ -17,6 +19,8 @@ import { HealthController } from "./health.controller.js";
     DemandsController,
     RunsController,
     ProfilesController,
+    CicdController,
+    WebhooksController,
   ],
   providers: [AuthGuard],
 })

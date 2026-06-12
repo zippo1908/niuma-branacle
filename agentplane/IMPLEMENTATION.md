@@ -1,6 +1,6 @@
 # Implementation status
 
-This monorepo implements **Phase 0 + 1 + 2 + 3** of [`docs/architecture/11-mvp-roadmap.md`](docs/architecture/11-mvp-roadmap.md): the single-user loop **Demand → Run → live logs → diff → review → commit → push → PR**, plus **concurrency safety + crash recovery** ("safe to run multiple workers"), verified end-to-end.
+This monorepo implements **Phase 0 + 1 + 2 + 3 + 4** of [`docs/architecture/11-mvp-roadmap.md`](docs/architecture/11-mvp-roadmap.md): the single-user loop **Demand → Run → live logs → diff → review → commit → push → PR → CI → deploy → rollback**, plus **concurrency safety + crash recovery** ("safe to run multiple workers"), verified end-to-end.
 
 ## Done
 
@@ -20,9 +20,13 @@ This monorepo implements **Phase 0 + 1 + 2 + 3** of [`docs/architecture/11-mvp-r
 
   Verified by chaos test against live infra: two writes on the same project+branch **serialised** (the 2nd waited for the lock); `kill -9` of a busy worker → job recovered onto a fresh workspace (`attempt 2`, "recovered after worker crash"); the DB guarantee — no `(project, branch)` ever has >1 held lock — held throughout; force-release, reconcile, and retry all confirmed.
 
+- **Phase 4 — CI/CD.** `ci_jobs` + `deployments` tables (migration `0002`). A **deploy worker queue** checks out the approved commit in a detached worktree and runs the project's pre-registered `deploy_<env>` command, capturing a URL (`DEPLOY_URL=`/`PREVIEW_URL=` convention); at most one in-flight deploy per project+environment (partial unique index). Deploys are **gated on an accepted approval** (recorded per env); **production requires a superadmin**. **Rollback** re-deploys the previous succeeded commit and marks the target `rolled_back`. CI status comes from a **GitHub webhook** (`POST /webhooks/github`, HMAC-`X-Hub-Signature-256` verified, links `workflow_run` → demand via the work branch) with a **poll fallback** (`POST /demands/:id/ci/refresh` reads GitHub Actions). PR creation (Phase 2) + CI + deploy + rollback are surfaced in the portal run page.
+
+  Verified on live infra: two demands shipped + **deployed to staging** (URL captured); **rollback** re-deployed the prior commit and flipped the previous deployment to `rolled_back`; webhook **rejected a bad signature (401)** and **accepted a valid one (200)**, upserting a linked `ci_jobs` row. PR creation + GitHub Actions polling need a real GitHub remote + `GITHUB_TOKEN` (implemented; not exercised offline).
+
 ## Deliberately deferred (later phases)
 
-- **Phase 3 (remaining)** `systemd-run` cgroup resource limits + Docker sandboxing of the agent; control-channel `input` (answering `waiting_user_input`).
+- **Phase 3/4 (remaining)** `systemd-run` cgroup resource limits + Docker sandboxing of the agent; control-channel `input`; `docker compose` preview *orchestration* (port allocation/recycling) beyond the templated deploy command.
 - **Phase 4** CI/CD (GitHub Actions webhooks, compose previews, deployments/rollback) — tables for these are not yet migrated.
 - **Phase 5** multi-user RBAC guards + `audit_logs` write-path + Audit UI.
 - **Phase 6** daily Demand Stack scheduler.

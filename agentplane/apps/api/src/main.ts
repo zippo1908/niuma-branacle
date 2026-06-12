@@ -4,7 +4,7 @@ import { AppModule } from "./app.module.js";
 import { config } from "./config.js";
 
 async function bootstrap() {
-  const app = await NestFactory.create(AppModule, { cors: true });
+  const app = await NestFactory.create(AppModule, { cors: true, rawBody: true });
   app.setGlobalPrefix("api/v1", { exclude: ["healthz"] });
   app.enableShutdownHooks();
   await app.listen(config.port);
