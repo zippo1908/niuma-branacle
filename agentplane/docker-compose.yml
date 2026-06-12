@@ -1,0 +1,35 @@
+# Local dev dependencies for AgentPlane (Postgres 16 + Redis 7).
+# The API, worker and portal run on the host (pnpm dev); this just provides stores.
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: agentplane
+      POSTGRES_PASSWORD: agentplane
+      POSTGRES_DB: agentplane
+    ports:
+      - "5433:5432"
+    volumes:
+      - agentplane_pg:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U agentplane"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  redis:
+    image: redis:7-alpine
+    command: ["redis-server", "--appendonly", "yes"]
+    ports:
+      - "6380:6379"
+    volumes:
+      - agentplane_redis:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+volumes:
+  agentplane_pg:
+  agentplane_redis:

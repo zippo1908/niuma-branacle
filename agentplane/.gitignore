@@ -1,0 +1,12 @@
+node_modules/
+dist/
+.next/
+.turbo/
+*.tsbuildinfo
+coverage/
+.env
+.env.local
+.DS_Store
+*.log
+# local data root (when AGENTPLANE_DATA_DIR points inside the repo for dev)
+/.data/

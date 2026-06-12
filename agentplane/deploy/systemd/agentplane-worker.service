@@ -1,0 +1,20 @@
+# /etc/systemd/system/agentplane-worker.service
+[Unit]
+Description=AgentPlane Worker (agent runner)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=agentplane
+WorkingDirectory=/opt/agentplane
+EnvironmentFile=/opt/agentplane/.env
+ExecStart=/usr/bin/node apps/worker/dist/main.js
+Restart=on-failure
+RestartSec=3
+# the worker needs git + the agent CLIs on PATH; keep it able to spawn process groups
+KillMode=mixed
+TimeoutStopSec=20
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,20 @@
+# AgentPlane edge (Caddy). Replace agentplane.example.com with your host.
+# Caddy terminates TLS (auto) and reverse-proxies to the portal, which itself
+# proxies /api → the API. SSE works out of the box (Caddy does not buffer).
+
+agentplane.example.com {
+	encode zstd gzip
+
+	# API + health straight to the API service (also reachable via the portal proxy)
+	@api path /api/* /healthz
+	handle @api {
+		reverse_proxy 127.0.0.1:4000 {
+			flush_interval -1   # stream SSE immediately, no buffering
+		}
+	}
+
+	# Everything else → the Next.js portal
+	handle {
+		reverse_proxy 127.0.0.1:3000
+	}
+}
