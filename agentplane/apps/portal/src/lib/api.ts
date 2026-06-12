@@ -50,7 +50,10 @@ export const api = {
   projects: () => req<Project[]>("/projects"),
   createProject: (b: { slug: string; name: string; repo_url: string; default_branch?: string }) =>
     req<Project>("/projects", { method: "POST", body: JSON.stringify(b) }),
-  project: (id: string) => req<Project & { active_runs: Run[] }>(`/projects/${id}`),
+  project: (id: string) =>
+    req<Project & { active_runs: Run[]; locks: Lock[] }>(`/projects/${id}`),
+  releaseLock: (projectId: string, lockId: string) =>
+    req<{ status: string }>(`/projects/${projectId}/locks/${lockId}/release`, { method: "POST", body: "{}" }),
 
   demands: (projectId: string) => req<Demand[]>(`/demands?project_id=${projectId}`),
   createDemand: (b: { project_id: string; title: string; acceptance_criteria?: string; run_mode?: string }) =>
@@ -69,4 +72,12 @@ export const api = {
   reject: (id: string, comment?: string) =>
     req<{ decision: string }>(`/runs/${id}/reject`, { method: "POST", body: JSON.stringify({ comment }) }),
   stop: (id: string) => req<void>(`/runs/${id}/stop`, { method: "POST", body: "{}" }),
+  retry: (id: string) => req<{ new_run_id: string }>(`/runs/${id}/retry`, { method: "POST", body: "{}" }),
 };
+
+export interface Lock {
+  id: string;
+  branch: string;
+  holderRunId: string | null;
+  expiresAt: string;
+}

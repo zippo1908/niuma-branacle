@@ -47,7 +47,7 @@ export class WorkspaceManager {
     const barePath = opts.bareRepoPath ?? join(config.dirs.projects, `${opts.projectSlug}.git`);
     await ensureBareRepo(opts.repoUrl, barePath);
 
-    const wsPath = safeJoin(config.dirs.workspaces, opts.projectSlug, opts.runId);
+    const wsPath = safeJoin(config.dirs.workspaces, opts.projectSlug, `${opts.runId}-a${opts.attempt}`);
     const workBranch = `agentplane/d${opts.demandNumber}-r${opts.attempt}-${opts.runId.slice(0, 8)}`;
     const baseCommit = await addWorktree(barePath, wsPath, workBranch, opts.baseBranch);
 

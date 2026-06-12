@@ -5,3 +5,4 @@ import { config } from "./config.js";
 export const bullConnection = new IORedis(config.redisUrl, { maxRetriesPerRequest: null });
 export const publisher = new IORedis(config.redisUrl);
 export const subscriber = new IORedis(config.redisUrl);
+export const lockRedis = new IORedis(config.redisUrl);

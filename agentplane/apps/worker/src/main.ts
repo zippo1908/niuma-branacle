@@ -5,10 +5,11 @@ import { eq } from "drizzle-orm";
 import { QUEUES, channels, type ControlMessage, type GitOpAction } from "@agentplane/shared";
 import { schema } from "@agentplane/db";
 import { config, ensureDataDirs } from "./config.js";
-import { bullConnection } from "./redis.js";
+import { bullConnection, lockRedis } from "./redis.js";
 import { getDb } from "./db.js";
 import { processRun } from "./runner.js";
 import { processGitOp } from "./gitops.js";
+import { ProjectLockManager } from "./lock.js";
 import { ensureBareRepo } from "./git.js";
 
 ensureDataDirs();
@@ -38,7 +39,14 @@ const runWorker = new Worker(
       await control.quit().catch(() => {});
     }
   },
-  { connection: bullConnection as unknown as ConnectionOptions, concurrency: config.workerConcurrency },
+  {
+    connection: bullConnection as unknown as ConnectionOptions,
+    concurrency: config.workerConcurrency,
+    // crash recovery: a job whose worker dies is re-delivered after ~30s (the
+    // runner then recovers it onto a fresh workspace). See runner.recoverCrashedRun.
+    stalledInterval: 30_000,
+    maxStalledCount: 2,
+  },
 );
 
 runWorker.on("failed", (job, err) => {
@@ -90,8 +98,18 @@ gitOpsWorker.on("failed", (job, err) => {
   console.error(`[worker] git-op ${job?.data?.action} for run ${job?.data?.runId} failed:`, err.message);
 });
 
+// ── lock reconciliation: expire PG 'held' rows whose Redis key has vanished ────
+const lockMgr = new ProjectLockManager(lockRedis);
+const reconcileTimer = setInterval(() => {
+  void lockMgr
+    .reconcile()
+    .then((n) => n > 0 && console.log(`[worker] reconciled ${n} dead lock(s)`))
+    .catch((e) => console.error("[worker] reconcile error:", e));
+}, 30_000);
+
 async function shutdown() {
   console.log("[worker] shutting down…");
+  clearInterval(reconcileTimer);
   await Promise.allSettled([runWorker.close(), cloneWorker.close(), gitOpsWorker.close()]);
   process.exit(0);
 }

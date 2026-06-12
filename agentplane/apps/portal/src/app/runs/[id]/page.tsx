@@ -1,5 +1,6 @@
 "use client";
 import { useEffect, useRef, useState } from "react";
+import { useRouter } from "next/navigation";
 import { api, type Run } from "@/lib/api";
 
 const EVENT_TYPES = [
@@ -24,6 +25,7 @@ function statusBadge(s: string) {
 
 export default function RunPage({ params }: { params: { id: string } }) {
   const id = params.id;
+  const router = useRouter();
   const [run, setRun] = useState<Run | null>(null);
   const [logs, setLogs] = useState<LogEntry[]>([]);
   const [diff, setDiff] = useState<{ patch: string; files_changed: number; insertions: number; deletions: number } | null>(null);
@@ -83,7 +85,12 @@ export default function RunPage({ params }: { params: { id: string } }) {
       <a href="/" className="muted">← home</a>
       <div className="row" style={{ justifyContent: "space-between", marginTop: 8 }}>
         <h1>Run</h1>
-        {run && statusBadge(run.status)}
+        <div className="row">
+          {run && ["failed", "cancelled", "timed_out"].includes(run.status) && (
+            <button onClick={async () => { const r = await api.retry(id); router.push(`/runs/${r.new_run_id}`); }}>↻ Retry</button>
+          )}
+          {run && statusBadge(run.status)}
+        </div>
       </div>
       <div className="muted">{id}</div>
 

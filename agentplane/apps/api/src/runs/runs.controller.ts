@@ -5,7 +5,8 @@ import IORedis from "ioredis";
 import { and, asc, desc, eq, gt } from "drizzle-orm";
 import { schema, type Database } from "@agentplane/db";
 import { channels, assertDemandTransition, type DemandStatus, type GitOpAction } from "@agentplane/shared";
-import { DB, PUBLISHER, GIT_OPS_QUEUE } from "../infra/infra.module.js";
+import { sql } from "drizzle-orm";
+import { DB, PUBLISHER, GIT_OPS_QUEUE, RUN_QUEUE } from "../infra/infra.module.js";
 import { AuthGuard, type AuthedUser } from "../auth/auth.guard.js";
 import { CurrentUser } from "../auth/current-user.decorator.js";
 import { config } from "../config.js";
@@ -29,6 +30,7 @@ export class RunsController {
     @Inject(DB) private readonly db: Database,
     @Inject(PUBLISHER) private readonly pub: IORedis,
     @Inject(GIT_OPS_QUEUE) private readonly gitOps: Queue,
+    @Inject(RUN_QUEUE) private readonly runQueue: Queue,
   ) {}
 
   @Get(":id")
@@ -70,6 +72,55 @@ export class RunsController {
   async stop(@Param("id") id: string) {
     await this.pub.publish(channels.control(id), JSON.stringify({ type: "stop" }));
     return { run_id: id, status: "stopping" };
+  }
+
+  @Post(":id/retry")
+  @UseGuards(AuthGuard)
+  async retry(@CurrentUser() user: AuthedUser, @Param("id") id: string) {
+    const run = (await this.db.select().from(schema.agentRuns).where(eq(schema.agentRuns.id, id)))[0];
+    if (!run) throw new NotFoundException({ error: { code: "NOT_FOUND", message: "run not found" } });
+    // demand must be re-runnable; move it back toward queued
+    await this.moveDemandToQueued(run.demandId);
+    const [{ maxAttempt }] = await this.db
+      .select({ maxAttempt: sql<number>`coalesce(max(${schema.agentRuns.attempt}), 0)` })
+      .from(schema.agentRuns)
+      .where(eq(schema.agentRuns.demandId, run.demandId));
+    const [newRun] = await this.db
+      .insert(schema.agentRuns)
+      .values({
+        demandId: run.demandId,
+        projectId: run.projectId,
+        agentProfileId: run.agentProfileId,
+        runMode: run.runMode,
+        status: "queued",
+        attempt: Number(maxAttempt) + 1,
+        triggeredBy: user.id,
+        dangerousMode: run.dangerousMode,
+      })
+      .returning();
+    await this.runQueue.add("run", { runId: newRun!.id }, { removeOnComplete: 100, attempts: 2 });
+    return { new_run_id: newRun!.id, attempt: newRun!.attempt };
+  }
+
+  private async moveDemandToQueued(demandId: string) {
+    const cur = (await this.db.select({ status: schema.demands.status }).from(schema.demands).where(eq(schema.demands.id, demandId)))[0];
+    if (!cur) return;
+    const from = cur.status as DemandStatus;
+    const path: DemandStatus[] =
+      from === "queued" ? []
+      : from === "inbox" ? ["clarified", "queued"]
+      : from === "clarified" || from === "failed" ? ["queued"]
+      : from === "waiting_review" ? ["clarified", "queued"]
+      : [];
+    if (path.length === 0 && from !== "queued") {
+      throw new BadRequestException({ error: { code: "NOT_RETRYABLE", message: `demand is ${from}` } });
+    }
+    let s = from;
+    for (const next of path) {
+      assertDemandTransition(s, next);
+      await this.db.update(schema.demands).set({ status: next, updatedAt: new Date() }).where(eq(schema.demands.id, demandId));
+      s = next;
+    }
   }
 
   @Post(":id/approve")

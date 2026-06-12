@@ -1,7 +1,7 @@
 "use client";
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
-import { api, type Demand, type Project } from "@/lib/api";
+import { api, type Demand, type Project, type Lock } from "@/lib/api";
 
 function statusBadge(s: string) {
   const cls =
@@ -15,7 +15,7 @@ function statusBadge(s: string) {
 
 export default function ProjectPage({ params }: { params: { id: string } }) {
   const router = useRouter();
-  const [project, setProject] = useState<Project | null>(null);
+  const [project, setProject] = useState<(Project & { locks?: Lock[] }) | null>(null);
   const [demands, setDemands] = useState<Demand[]>([]);
   const [form, setForm] = useState({ title: "", acceptance_criteria: "", run_mode: "edit" });
   const [err, setErr] = useState<string | null>(null);
@@ -58,6 +58,20 @@ export default function ProjectPage({ params }: { params: { id: string } }) {
     <main className="wrap">
       <a href="/" className="muted">← projects</a>
       <h1>{project?.name ?? "Project"}</h1>
+
+      {project?.locks && project.locks.length > 0 && (
+        <div className="card">
+          <h3>Active locks</h3>
+          {project.locks.map((l) => (
+            <div className="row" key={l.id} style={{ justifyContent: "space-between", marginTop: 8 }}>
+              <span className="muted">branch <b style={{ color: "var(--text)" }}>{l.branch}</b></span>
+              <button className="red" onClick={async () => { await api.releaseLock(params.id, l.id); await load(); }}>
+                Force release
+              </button>
+            </div>
+          ))}
+        </div>
+      )}
 
       <h2 style={{ marginTop: 20 }}>Demands</h2>
       {demands.length === 0 && <p className="muted">No demands yet.</p>}

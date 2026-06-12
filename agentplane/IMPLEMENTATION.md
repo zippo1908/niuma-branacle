@@ -1,6 +1,6 @@
 # Implementation status
 
-This monorepo implements **Phase 0 + Phase 1 + Phase 2** of [`docs/architecture/11-mvp-roadmap.md`](docs/architecture/11-mvp-roadmap.md): the single-user loop **Demand → Run → live logs → diff → review → commit → push → PR**, verified end-to-end.
+This monorepo implements **Phase 0 + 1 + 2 + 3** of [`docs/architecture/11-mvp-roadmap.md`](docs/architecture/11-mvp-roadmap.md): the single-user loop **Demand → Run → live logs → diff → review → commit → push → PR**, plus **concurrency safety + crash recovery** ("safe to run multiple workers"), verified end-to-end.
 
 ## Done
 
@@ -16,9 +16,13 @@ This monorepo implements **Phase 0 + Phase 1 + Phase 2** of [`docs/architecture/
 
 `pnpm build` and `pnpm test` are green; the loop was verified against live Postgres/Redis: worktree created → shell edit produced a real 1-file diff → run reached `waiting_review` → **Approve & ship** wrote commit `edb129e3…` and pushed branch `agentplane/d2-r1-…` to the repo.
 
+- **Phase 3 — concurrency safety + crash recovery.** A **Redis-Lua project lock** (`SET NX PX`) is the runtime source of truth, persisted to `project_locks` and renewed by a **heartbeat**; the partial-unique index is the DB backstop (one `held` row per project+branch). Write runs **block-wait** for a busy lock (up to `LOCK_WAIT_SECONDS`) instead of failing. A **reconciliation loop** expires `held` rows whose Redis key has vanished. **Crash recovery**: BullMQ stalled-detection re-delivers a dead worker's job; the runner discards the half-built workspace, frees the stale lock, bumps `attempt`, and **re-runs on a fresh workspace** (step sequence continues, so the crashed attempt stays in the timeline). **Timeout policy**: total (`run.timeout_seconds`) + **silent-output watchdog** (`SILENT_TIMEOUT_SECONDS`) → `timed_out`; user **stop** → `cancelled` (diff still collected). New endpoints: `POST /runs/:id/retry`, `GET /projects/:id/locks`, `POST /projects/:id/locks/:lockId/release` (force-release). Portal shows active locks + force-release + run retry.
+
+  Verified by chaos test against live infra: two writes on the same project+branch **serialised** (the 2nd waited for the lock); `kill -9` of a busy worker → job recovered onto a fresh workspace (`attempt 2`, "recovered after worker crash"); the DB guarantee — no `(project, branch)` ever has >1 held lock — held throughout; force-release, reconcile, and retry all confirmed.
+
 ## Deliberately deferred (later phases)
 
-- **Phase 3** Redis-Lua lock runtime + heartbeat/stalled-recovery, full timeout/resource policies (`systemd-run` cgroups), control-channel `input`.
+- **Phase 3 (remaining)** `systemd-run` cgroup resource limits + Docker sandboxing of the agent; control-channel `input` (answering `waiting_user_input`).
 - **Phase 4** CI/CD (GitHub Actions webhooks, compose previews, deployments/rollback) — tables for these are not yet migrated.
 - **Phase 5** multi-user RBAC guards + `audit_logs` write-path + Audit UI.
 - **Phase 6** daily Demand Stack scheduler.
