@@ -1,6 +1,6 @@
 # Implementation status
 
-This monorepo implements **Phase 0 + Phase 1** of [`docs/architecture/11-mvp-roadmap.md`](docs/architecture/11-mvp-roadmap.md): the single-user core loop **Demand → Run → live logs → diff → human review**, verified end-to-end.
+This monorepo implements **Phase 0 + Phase 1 + Phase 2** of [`docs/architecture/11-mvp-roadmap.md`](docs/architecture/11-mvp-roadmap.md): the single-user loop **Demand → Run → live logs → diff → review → commit → push → PR**, verified end-to-end.
 
 ## Done
 
@@ -11,11 +11,13 @@ This monorepo implements **Phase 0 + Phase 1** of [`docs/architecture/11-mvp-roa
 - **`apps/api`** — NestJS REST under `/api/v1` + cookie session auth; projects (register → enqueue clone), demands (CRUD, attachments with MIME/size checks, comments, `:id/run`), runs (`:id`, `:id/logs`, `:id/diff`, `:id/approve|reject|stop`), **SSE `/runs/:id/events`** with `Last-Event-ID` backlog replay; agent-profiles; `/healthz`.
 - **`apps/portal`** — Next.js (App Router, mobile-first): login, projects + register, demands + file/run, **run detail with live SSE logs**, step timeline, coloured diff, approve / request-changes. Same-origin via Next rewrites so cookies + SSE work without CORS.
 
-`pnpm build` and `pnpm test` are green; the loop was verified against the live Postgres/Redis (worktree created, shell edit produced a real 1-file diff, run reached `waiting_review`, approve advanced the demand to `accepted`).
+- **Phase 2 — review → ship.** `approvals` table (migration `0001`); `POST /runs/:id/approve` records an accepted `diff_review` approval (and `?auto=ship` enqueues the chain); `reject` records `changes_requested` and sends the demand back to `clarified`; `commit` / `push` / `create-pr` endpoints are **gated on an accepted approval** (403 otherwise). A `git-ops` worker queue commits the worktree (templated message → `agent_runs.commit_sha`), pushes the work branch to the project's remote, and opens a GitHub PR when `GITHUB_TOKEN` + a GitHub remote are present (skips gracefully otherwise). Commit/push/PR progress streams over the same run SSE.
+- **Deploy packaging** — `scripts/setup.sh` (deps → build → migrate → seed), `deploy/systemd/*.service`, `deploy/Caddyfile` (SSE-safe), and a clone-and-deploy agent prompt at the repo root (`AGENT_DEPLOY_PROMPT.md`).
+
+`pnpm build` and `pnpm test` are green; the loop was verified against live Postgres/Redis: worktree created → shell edit produced a real 1-file diff → run reached `waiting_review` → **Approve & ship** wrote commit `edb129e3…` and pushed branch `agentplane/d2-r1-…` to the repo.
 
 ## Deliberately deferred (later phases)
 
-- **Phase 2** commit/push/PR jobs (approve currently records the decision + transitions the demand; it does not yet write a git commit).
 - **Phase 3** Redis-Lua lock runtime + heartbeat/stalled-recovery, full timeout/resource policies (`systemd-run` cgroups), control-channel `input`.
 - **Phase 4** CI/CD (GitHub Actions webhooks, compose previews, deployments/rollback) — tables for these are not yet migrated.
 - **Phase 5** multi-user RBAC guards + `audit_logs` write-path + Audit UI.

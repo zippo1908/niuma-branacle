@@ -39,6 +39,7 @@ export const runMode = pgEnum("run_mode", ["analysis", "edit", "test", "build", 
 export const riskLevel = pgEnum("risk_level", ["low", "medium", "high", "critical"]);
 export const lockStatus = pgEnum("lock_status", ["held", "released", "expired", "force_released"]);
 export const memberRole = pgEnum("member_role", ["viewer", "developer", "reviewer", "admin", "owner"]);
+export const approvalStatus = pgEnum("approval_status", ["pending", "accepted", "rejected", "changes_requested"]);
 
 // ── organizations / users / projects ───────────────────────────────────────────
 export const organizations = pgTable("organizations", {
@@ -199,6 +200,7 @@ export const agentRuns = pgTable(
     finishedAt: timestamp("finished_at", { withTimezone: true }),
     timeoutSeconds: integer("timeout_seconds").notNull().default(3600),
     errorMessage: text("error_message"),
+    commitSha: text("commit_sha"),
     createdAt: createdAt(),
   },
   (t) => ({
@@ -308,6 +310,23 @@ export const diffs = pgTable(
     createdAt: createdAt(),
   },
   (t) => ({ idx: index("diffs_run_idx").on(t.runId) }),
+);
+
+export const approvals = pgTable(
+  "approvals",
+  {
+    id: id(),
+    runId: uuid("run_id").notNull().references(() => agentRuns.id),
+    demandId: uuid("demand_id").notNull().references(() => demands.id),
+    kind: text("kind").notNull(), // diff_review | staging_deploy | production_deploy
+    status: approvalStatus("status").notNull().default("pending"),
+    reviewerId: uuid("reviewer_id").references(() => users.id),
+    comment: text("comment"),
+    diffId: uuid("diff_id").references(() => diffs.id),
+    requestedAt: timestamp("requested_at", { withTimezone: true }).notNull().defaultNow(),
+    decidedAt: timestamp("decided_at", { withTimezone: true }),
+  },
+  (t) => ({ runIdx: index("approvals_run_idx").on(t.runId) }),
 );
 
 export const systemSettings = pgTable("system_settings", {

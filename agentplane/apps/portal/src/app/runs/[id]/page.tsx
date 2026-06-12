@@ -5,7 +5,8 @@ import { api, type Run } from "@/lib/api";
 const EVENT_TYPES = [
   "run.created", "run.queued", "workspace.created", "lock.acquired", "lock.released",
   "agent.started", "agent.output", "command.started", "command.finished", "step.updated",
-  "diff.generated", "approval.requested", "run.succeeded", "run.failed", "run.cancelled", "run.timed_out",
+  "diff.generated", "approval.requested", "commit.created", "push.completed", "pr.created",
+  "run.succeeded", "run.failed", "run.cancelled", "run.timed_out",
 ];
 const TERMINAL = new Set(["run.succeeded", "run.failed", "run.cancelled", "run.timed_out"]);
 
@@ -63,10 +64,11 @@ export default function RunPage({ params }: { params: { id: string } }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [run?.status]);
 
-  async function decide(kind: "approve" | "reject") {
+  async function decide(kind: "approve" | "ship" | "reject") {
     setBusy(true);
     try {
       if (kind === "approve") await api.approve(id);
+      else if (kind === "ship") await api.approveAndShip(id);
       else await api.reject(id, "Please revise.");
       await refreshRun();
     } finally {
@@ -121,7 +123,8 @@ export default function RunPage({ params }: { params: { id: string } }) {
           </pre>
           {reviewing && (
             <div className="row" style={{ marginTop: 12 }}>
-              <button className="green" disabled={busy} onClick={() => decide("approve")}>✓ Approve</button>
+              <button className="green" disabled={busy} onClick={() => decide("ship")}>🚀 Approve &amp; ship</button>
+              <button disabled={busy} onClick={() => decide("approve")}>✓ Approve only</button>
               <button className="red" disabled={busy} onClick={() => decide("reject")}>✗ Request changes</button>
             </div>
           )}
@@ -138,6 +141,8 @@ function summarize(type: string, d: Record<string, unknown>) {
   if (type === "workspace.created") return String(d.work_branch ?? "");
   if (type === "diff.generated") return `${d.files_changed ?? 0} files`;
   if (type === "step.updated") return `${d.name ?? ""} ${d.status ?? ""}`;
+  if (type === "commit.created") return String(d.commit_sha ?? "").slice(0, 10);
+  if (type === "pr.created") return String(d.url ?? "");
   if (type === "run.failed") return String(d.error_message ?? d.exit_code ?? "");
   return "";
 }

@@ -64,6 +64,8 @@ export const api = {
     req<{ files_changed: number; insertions: number; deletions: number; is_empty: boolean; patch: string }>(`/runs/${id}/diff`),
   approve: (id: string, comment?: string) =>
     req<{ decision: string }>(`/runs/${id}/approve`, { method: "POST", body: JSON.stringify({ comment }) }),
+  approveAndShip: (id: string) =>
+    req<{ decision: string; shipping: boolean }>(`/runs/${id}/approve?auto=ship`, { method: "POST", body: "{}" }),
   reject: (id: string, comment?: string) =>
     req<{ decision: string }>(`/runs/${id}/reject`, { method: "POST", body: JSON.stringify({ comment }) }),
   stop: (id: string) => req<void>(`/runs/${id}/stop`, { method: "POST", body: "{}" }),

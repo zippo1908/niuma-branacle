@@ -1,10 +1,11 @@
-import { Body, Controller, Get, Inject, NotFoundException, Param, Post, Query, Req, Res, UseGuards } from "@nestjs/common";
+import { BadRequestException, Body, Controller, ForbiddenException, Get, Inject, NotFoundException, Param, Post, Query, Req, Res, UseGuards } from "@nestjs/common";
 import type { Request, Response } from "express";
+import type { Queue } from "bullmq";
 import IORedis from "ioredis";
 import { and, asc, desc, eq, gt } from "drizzle-orm";
 import { schema, type Database } from "@agentplane/db";
-import { channels, assertDemandTransition, type DemandStatus } from "@agentplane/shared";
-import { DB, PUBLISHER } from "../infra/infra.module.js";
+import { channels, assertDemandTransition, type DemandStatus, type GitOpAction } from "@agentplane/shared";
+import { DB, PUBLISHER, GIT_OPS_QUEUE } from "../infra/infra.module.js";
 import { AuthGuard, type AuthedUser } from "../auth/auth.guard.js";
 import { CurrentUser } from "../auth/current-user.decorator.js";
 import { config } from "../config.js";
@@ -27,6 +28,7 @@ export class RunsController {
   constructor(
     @Inject(DB) private readonly db: Database,
     @Inject(PUBLISHER) private readonly pub: IORedis,
+    @Inject(GIT_OPS_QUEUE) private readonly gitOps: Queue,
   ) {}
 
   @Get(":id")
@@ -72,17 +74,31 @@ export class RunsController {
 
   @Post(":id/approve")
   @UseGuards(AuthGuard)
-  async approve(@CurrentUser() user: AuthedUser, @Param("id") id: string, @Body() body: { comment?: string }) {
+  async approve(
+    @CurrentUser() user: AuthedUser,
+    @Param("id") id: string,
+    @Body() body: { comment?: string },
+    @Query("auto") auto?: string,
+  ) {
     const run = (await this.db.select().from(schema.agentRuns).where(eq(schema.agentRuns.id, id)))[0];
     if (!run) throw new NotFoundException({ error: { code: "NOT_FOUND", message: "run not found" } });
-    await this.transitionDemand(run.demandId, "accepted");
-    await this.db.insert(schema.demandComments).values({
+    const diff = (await this.db.select().from(schema.diffs).where(eq(schema.diffs.runId, id)).orderBy(desc(schema.diffs.createdAt)).limit(1))[0];
+    await this.db.insert(schema.approvals).values({
+      runId: id,
       demandId: run.demandId,
-      authorId: user.id,
-      kind: "system",
-      body: `Diff approved${body.comment ? `: ${body.comment}` : ""}. (commit/push is Phase 2.)`,
+      kind: "diff_review",
+      status: "accepted",
+      reviewerId: user.id,
+      comment: body.comment ?? null,
+      diffId: diff?.id ?? null,
+      decidedAt: new Date(),
     });
-    return { run_id: id, decision: "accepted" };
+    await this.transitionDemand(run.demandId, "accepted");
+    // convenience: one-tap ship = commit → push → PR (still discrete, interruptible jobs)
+    if (auto === "ship") {
+      await this.gitOps.add("ship", { runId: id, action: "ship" satisfies GitOpAction }, { removeOnComplete: 100, attempts: 1 });
+    }
+    return { run_id: id, decision: "accepted", shipping: auto === "ship" };
   }
 
   @Post(":id/reject")
@@ -90,14 +106,71 @@ export class RunsController {
   async reject(@CurrentUser() user: AuthedUser, @Param("id") id: string, @Body() body: { comment?: string }) {
     const run = (await this.db.select().from(schema.agentRuns).where(eq(schema.agentRuns.id, id)))[0];
     if (!run) throw new NotFoundException({ error: { code: "NOT_FOUND", message: "run not found" } });
-    await this.transitionDemand(run.demandId, "rejected");
+    await this.db.insert(schema.approvals).values({
+      runId: id,
+      demandId: run.demandId,
+      kind: "diff_review",
+      status: "changes_requested",
+      reviewerId: user.id,
+      comment: body.comment ?? null,
+      decidedAt: new Date(),
+    });
+    // request-changes sends the demand back to clarified so it can be re-run with feedback
+    await this.transitionDemand(run.demandId, "clarified");
     await this.db.insert(schema.demandComments).values({
       demandId: run.demandId,
       authorId: user.id,
       kind: "review_feedback",
-      body: body.comment ?? "Rejected.",
+      body: body.comment ?? "Changes requested.",
     });
-    return { run_id: id, decision: "rejected" };
+    return { run_id: id, decision: "changes_requested" };
+  }
+
+  // ── Phase 2: commit / push / PR (gated on an accepted diff_review approval) ──
+  private async requireAccepted(runId: string) {
+    const run = (await this.db.select().from(schema.agentRuns).where(eq(schema.agentRuns.id, runId)))[0];
+    if (!run) throw new NotFoundException({ error: { code: "NOT_FOUND", message: "run not found" } });
+    const approved = (
+      await this.db
+        .select()
+        .from(schema.approvals)
+        .where(and(eq(schema.approvals.runId, runId), eq(schema.approvals.status, "accepted")))
+        .limit(1)
+    )[0];
+    if (!approved) {
+      throw new ForbiddenException({ error: { code: "NOT_APPROVED", message: "run has no accepted diff review" } });
+    }
+    if (!run.workspaceId) {
+      throw new BadRequestException({ error: { code: "NO_WORKSPACE", message: "run has no workspace to commit" } });
+    }
+  }
+
+  @Post(":id/commit")
+  @UseGuards(AuthGuard)
+  async commit(@Param("id") id: string, @Body() body: { message?: string }) {
+    await this.requireAccepted(id);
+    await this.gitOps.add("commit", { runId: id, action: "commit" satisfies GitOpAction, message: body.message }, { attempts: 1 });
+    return { run_id: id, queued: "commit" };
+  }
+
+  @Post(":id/push")
+  @UseGuards(AuthGuard)
+  async push(@Param("id") id: string) {
+    await this.requireAccepted(id);
+    await this.gitOps.add("push", { runId: id, action: "push" satisfies GitOpAction }, { attempts: 1 });
+    return { run_id: id, queued: "push" };
+  }
+
+  @Post(":id/create-pr")
+  @UseGuards(AuthGuard)
+  async createPr(@Param("id") id: string, @Body() body: { title?: string; body?: string }) {
+    await this.requireAccepted(id);
+    await this.gitOps.add(
+      "create_pr",
+      { runId: id, action: "create_pr" satisfies GitOpAction, title: body.title, body: body.body },
+      { attempts: 1 },
+    );
+    return { run_id: id, queued: "create_pr" };
   }
 
   private async transitionDemand(demandId: string, to: DemandStatus) {

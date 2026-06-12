@@ -16,6 +16,9 @@ export type RunEventType =
   | "step.updated"
   | "diff.generated"
   | "approval.requested"
+  | "commit.created"
+  | "push.completed"
+  | "pr.created"
   | "run.succeeded"
   | "run.failed"
   | "run.cancelled"
@@ -48,7 +51,10 @@ export const channels = {
 export const QUEUES = {
   agentRuns: "agent-runs",
   projectClone: "project-clone",
+  gitOps: "git-ops",
 } as const;
+
+export type GitOpAction = "commit" | "push" | "create_pr" | "ship";
 
 export type ControlMessage =
   | { type: "stop"; reason?: string }

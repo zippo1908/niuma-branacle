@@ -2,12 +2,13 @@ import { Worker, type ConnectionOptions } from "bullmq";
 import IORedis from "ioredis";
 import { join } from "node:path";
 import { eq } from "drizzle-orm";
-import { QUEUES, channels, type ControlMessage } from "@agentplane/shared";
+import { QUEUES, channels, type ControlMessage, type GitOpAction } from "@agentplane/shared";
 import { schema } from "@agentplane/db";
 import { config, ensureDataDirs } from "./config.js";
 import { bullConnection } from "./redis.js";
 import { getDb } from "./db.js";
 import { processRun } from "./runner.js";
+import { processGitOp } from "./gitops.js";
 import { ensureBareRepo } from "./git.js";
 
 ensureDataDirs();
@@ -70,9 +71,28 @@ const cloneWorker = new Worker(
   { connection: bullConnection as unknown as ConnectionOptions, concurrency: 2 },
 );
 
+// ── git-ops consumer (commit / push / create_pr / ship) ───────────────────────
+const gitOpsWorker = new Worker(
+  QUEUES.gitOps,
+  async (job) => {
+    const { runId, action, message, title, body } = job.data as {
+      runId: string;
+      action: GitOpAction;
+      message?: string;
+      title?: string;
+      body?: string;
+    };
+    await processGitOp(runId, action, { message, title, body });
+  },
+  { connection: bullConnection as unknown as ConnectionOptions, concurrency: 2 },
+);
+gitOpsWorker.on("failed", (job, err) => {
+  console.error(`[worker] git-op ${job?.data?.action} for run ${job?.data?.runId} failed:`, err.message);
+});
+
 async function shutdown() {
   console.log("[worker] shutting down…");
-  await Promise.allSettled([runWorker.close(), cloneWorker.close()]);
+  await Promise.allSettled([runWorker.close(), cloneWorker.close(), gitOpsWorker.close()]);
   process.exit(0);
 }
 process.on("SIGTERM", shutdown);

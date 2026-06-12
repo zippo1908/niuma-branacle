@@ -1,8 +1,8 @@
 # AgentPlane
 
-> **Status: Phase 1 MVP implemented.** The core value loop — *file a Demand → run an agent in an isolated git worktree → stream live logs → capture the diff → human review* — runs end to end. Code lives in [`agentplane/`](agentplane/) (pnpm monorepo); the full specification is in [`agentplane/docs/`](agentplane/docs/). Remaining phases (CI/CD, multi-user RBAC, daily planning) follow the roadmap in [`docs/architecture/11-mvp-roadmap.md`](agentplane/docs/architecture/11-mvp-roadmap.md).
+> **Status: Phase 1 + 2 implemented.** The loop — *file a Demand → run an agent in an isolated git worktree → stream live logs → capture the diff → human review → commit → push → PR* — runs end to end. Code lives in [`agentplane/`](agentplane/) (pnpm monorepo); the full specification is in [`agentplane/docs/`](agentplane/docs/). Remaining phases (locks runtime, CI/CD, multi-user RBAC, daily planning) follow the roadmap in [`docs/architecture/11-mvp-roadmap.md`](agentplane/docs/architecture/11-mvp-roadmap.md).
 >
-> **Quickstart:** see [Running the MVP](#running-the-mvp-phase-1) below.
+> **Quickstart:** [`agentplane/scripts/setup.sh`](agentplane/scripts/setup.sh) (deps → build → migrate → seed), or [Running the MVP](#running-the-mvp-phase-1) below. **Deploying on a fresh box?** Hand [`AGENT_DEPLOY_PROMPT.md`](AGENT_DEPLOY_PROMPT.md) to a coding agent — it clones + stands everything up; the only human input is your Postgres URL.
 
 **AgentPlane is a self-hosted, demand-driven control plane for AI coding agents** — not another agent session UI.
 

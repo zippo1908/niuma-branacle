@@ -1,0 +1,22 @@
+# /etc/systemd/system/agentplane-api.service
+# Adjust the install path (/opt/agentplane), User, and node path for your box.
+[Unit]
+Description=AgentPlane API
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=agentplane
+WorkingDirectory=/opt/agentplane
+EnvironmentFile=/opt/agentplane/.env
+ExecStart=/usr/bin/node apps/api/dist/main.js
+Restart=on-failure
+RestartSec=3
+# hardening
+NoNewPrivileges=true
+ProtectSystem=full
+PrivateTmp=true
+
+[Install]
+WantedBy=multi-user.target

@@ -47,6 +47,21 @@ export async function removeWorktree(barePath: string, wsPath: string): Promise<
   }
 }
 
+/** Commit everything currently in the worktree; returns the new commit sha. */
+export async function commitWorktree(wsPath: string, message: string): Promise<string> {
+  await git(["add", "-A"], wsPath);
+  await git(
+    ["-c", "user.name=AgentPlane", "-c", "user.email=agentplane@localhost", "commit", "-m", message],
+    wsPath,
+  );
+  return (await git(["rev-parse", "HEAD"], wsPath)).trim();
+}
+
+/** Push the worktree's branch to its origin (the project's real remote). */
+export async function pushWorktree(wsPath: string, branch: string): Promise<string> {
+  return git(["push", "origin", `HEAD:refs/heads/${branch}`], wsPath);
+}
+
 export interface DiffResult {
   patch: string;
   filesChanged: number;

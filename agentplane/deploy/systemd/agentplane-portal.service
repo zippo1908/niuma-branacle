@@ -1,0 +1,19 @@
+# /etc/systemd/system/agentplane-portal.service
+[Unit]
+Description=AgentPlane Portal (Next.js)
+After=network-online.target agentplane-api.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=agentplane
+WorkingDirectory=/opt/agentplane/apps/portal
+EnvironmentFile=/opt/agentplane/.env
+# API_ORIGIN is read by next.config.mjs to proxy /api → the API service
+Environment=API_ORIGIN=http://127.0.0.1:4000
+ExecStart=/usr/bin/node node_modules/next/dist/bin/next start -p 3000
+Restart=on-failure
+RestartSec=3
+
+[Install]
+WantedBy=multi-user.target
