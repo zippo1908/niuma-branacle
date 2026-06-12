@@ -1,0 +1,27 @@
+{
+  "name": "@agentplane/worker",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "dev": "tsx watch src/main.ts",
+    "start": "node dist/main.js",
+    "lint": "echo \"(worker) no eslint configured yet\"",
+    "test": "echo \"(worker) no unit tests\""
+  },
+  "dependencies": {
+    "@agentplane/db": "workspace:*",
+    "@agentplane/shared": "workspace:*",
+    "bullmq": "^5.21.2",
+    "ioredis": "^5.4.1",
+    "drizzle-orm": "^0.36.4",
+    "dotenv": "^16.4.5"
+  },
+  "devDependencies": {
+    "@types/node": "^20.16.11",
+    "tsx": "^4.19.1",
+    "typescript": "^5.6.3"
+  }
+}

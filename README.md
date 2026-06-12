@@ -1,6 +1,8 @@
 # AgentPlane
 
-> **Status: design phase.** This repository currently contains the full architecture specification. Implementation follows the roadmap in [`docs/architecture/11-mvp-roadmap.md`](docs/architecture/11-mvp-roadmap.md).
+> **Status: Phase 1 MVP implemented.** The core value loop — *file a Demand → run an agent in an isolated git worktree → stream live logs → capture the diff → human review* — runs end to end. Code lives in [`agentplane/`](agentplane/) (pnpm monorepo); the full specification is in [`agentplane/docs/`](agentplane/docs/). Remaining phases (CI/CD, multi-user RBAC, daily planning) follow the roadmap in [`docs/architecture/11-mvp-roadmap.md`](agentplane/docs/architecture/11-mvp-roadmap.md).
+>
+> **Quickstart:** see [Running the MVP](#running-the-mvp-phase-1) below.
 
 **AgentPlane is a self-hosted, demand-driven control plane for AI coding agents** — not another agent session UI.
 
@@ -47,6 +49,39 @@ See [`docs/architecture/09-security.md`](docs/architecture/09-security.md) and [
 ## Self-hosting
 
 Designed for a single Linux box first (reference: Rocky Linux 9; any systemd distro should work). Data root defaults to `/srv/agentplane` and is configurable via `AGENTPLANE_DATA_DIR`. Setup guide: [`docs/runbooks/local-dev-server-setup.md`](docs/runbooks/local-dev-server-setup.md).
+
+## Running the MVP (Phase 1)
+
+Everything lives under [`agentplane/`](agentplane/) — a pnpm + turborepo monorepo:
+
+| Package | What it is |
+|---|---|
+| `packages/shared` | state machines, `safeJoin`, secret redactor, prompt builder, password hashing (unit-tested) |
+| `packages/db` | Drizzle schema + SQL migration + seed (Postgres 16) |
+| `apps/worker` | BullMQ consumer → git worktree → executor (Shell / Claude / Codex) → log pipeline (disk · DB · redact · Redis) → diff |
+| `apps/api` | NestJS REST + SSE (`/runs/:id/events`), cookie auth, demand/run lifecycle |
+| `apps/portal` | Next.js mobile-first UI: login · projects · demands · live run logs · diff review |
+
+```bash
+cd agentplane
+corepack enable pnpm           # Node 20+
+pnpm install
+cp .env.example .env           # then edit secrets
+docker compose up -d           # Postgres 16 (:5433) + Redis 7 (:6380)
+pnpm db:migrate && pnpm db:seed
+
+# three processes (separate terminals, or a process manager)
+pnpm --filter @agentplane/api dev       # http://localhost:4000  (GET /healthz)
+pnpm --filter @agentplane/worker dev
+pnpm --filter @agentplane/portal dev    # http://localhost:3000
+
+# sign in with SEED_USER_EMAIL / SEED_USER_PASSWORD, register a project
+# (git URL or a local path), file a demand, hit "Run agent", watch live logs + diff.
+```
+
+Without an agent CLI installed, runs use the **shell executor**: set `project.settings.commands.<run_mode>` to a templated command to exercise the full worktree→diff→review loop. Install Claude Code / Codex and point an `agent_profiles.binary_path` at it to drive a real coding agent.
+
+Build & test the whole monorepo: `pnpm build` · `pnpm test`.
 
 ## Roadmap
 
